@@ -208,7 +208,8 @@ func (ud *UpdateDataset) SetError(err error) *UpdateDataset {
 // Errors:
 //   - There is an error generating the SQL
 func (ud *UpdateDataset) ToSQL() (sql string, params []interface{}, err error) {
-	return ud.updateSQLBuilder().ToSQL()
+	builder := ud.updateSQLBuilder()
+	return builder.ToSQL()
 }
 
 // Appends this Dataset's UPDATE statement to the SQLBuilder

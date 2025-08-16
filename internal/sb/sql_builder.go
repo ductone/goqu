@@ -2,6 +2,7 @@ package sb
 
 import (
 	"bytes"
+	"sync"
 )
 
 // Builder that is composed of a bytes.Buffer. It is used internally and by adapters to build SQL statements
@@ -13,6 +14,8 @@ type (
 		Write(p []byte) SQLBuilder
 		WriteStrings(ss ...string) SQLBuilder
 		WriteRunes(r ...rune) SQLBuilder
+		GrowArgs(n int) SQLBuilder
+		GrowBuffer(n int) SQLBuilder
 		IsPrepared() bool
 		CurrentArgPosition() int
 		ToSQL() (sql string, args []interface{}, err error)
@@ -31,9 +34,9 @@ type (
 func NewSQLBuilder(isPrepared bool) SQLBuilder {
 	return &sqlBuilder{
 		buf:                &bytes.Buffer{},
-		isPrepared:         isPrepared,
-		args:               make([]interface{}, 0),
+		args:               make([]any, 0, 4),
 		currentArgPosition: 1,
+		isPrepared:         isPrepared,
 	}
 }
 
@@ -66,9 +69,36 @@ func (b *sqlBuilder) WriteStrings(ss ...string) SQLBuilder {
 
 func (b *sqlBuilder) WriteRunes(rs ...rune) SQLBuilder {
 	if b.err == nil {
-		for _, r := range rs {
-			b.buf.WriteRune(r)
-		}
+		b.buf.WriteString(string(rs))
+	}
+	return b
+}
+
+func (b *sqlBuilder) GrowArgs(n int) SQLBuilder {
+	if b.err != nil || n <= 0 {
+		return b
+	}
+	currentLen := len(b.args)
+	needed := currentLen + n
+	if cap(b.args) >= needed {
+		return b
+	}
+	newCap := cap(b.args)
+	if newCap == 0 {
+		newCap = 1
+	}
+	for newCap < needed {
+		newCap *= 2
+	}
+	na := make([]interface{}, currentLen, newCap)
+	copy(na, b.args)
+	b.args = na
+	return b
+}
+
+func (b *sqlBuilder) GrowBuffer(n int) SQLBuilder {
+	if b.err == nil && n > 0 {
+		b.buf.Grow(n)
 	}
 	return b
 }
@@ -98,4 +128,14 @@ func (b *sqlBuilder) ToSQL() (sql string, args []interface{}, err error) {
 		return sql, args, b.err
 	}
 	return b.buf.String(), b.args, nil
+}
+
+var builderPool = sync.Pool{
+	New: func() interface{} {
+		return &sqlBuilder{
+			buf:                &bytes.Buffer{},
+			args:               make([]interface{}, 0),
+			currentArgPosition: 1,
+		}
+	},
 }
